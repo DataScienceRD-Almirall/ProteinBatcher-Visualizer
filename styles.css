@@ -1,0 +1,117 @@
+/* Ensure labels for selectInput and other controls are visible */
+.sidebar .form-group label {
+  font-size: 16px;
+  font-weight: bold;
+  color: #333; /* Dark gray for readability */
+  margin-bottom: 10px;
+}
+
+:root {
+  --almirall-navy: #002855;
+  --almirall-turquoise: #00F0BE;
+  --almirall-teal1: #005A6E;
+  --almirall-teal2: #008C94;
+  --almirall-teal3: #00BFA0;
+  --almirall-purple: #8700D4;
+  --text-gray: #333;
+  --bg-light: #f9f9f9;
+}
+
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background-color: var(--bg-light);
+  color: var(--text-gray);
+}
+
+/* Navbar */
+.navbar {
+  background-color: var(--almirall-navy) !important;
+  border-bottom: 3px solid var(--almirall-teal2);
+}
+
+.navbar a {
+  color: white !important;
+}
+
+.navbar a:hover {
+  background-color: var(--almirall-teal3) !important;
+  color: #fff !important;
+}
+
+/* Sidebar */
+.sidebar {
+  background-color: var(--almirall-teal1);
+  color: white;
+  padding: 20px;
+}
+
+.sidebar .form-group label {
+  font-weight: bold;
+  color: black;
+  font-size: 14px;
+  margin-bottom: 5px;
+}
+
+/* Headings */
+h1, h2, h3 {
+  color: var(--almirall-navy);
+}
+
+/* Buttons (optional) */
+.btn {
+  background-color: var(--almirall-purple);
+  border-color: var(--almirall-purple);
+  color: #333;
+}
+
+.btn:hover {
+  background-color: var(--almirall-teal3);
+  border-color: var(--almirall-teal3);
+}
+
+/* Cards or section blocks */
+.section.level3 {
+  background: white;
+  border-left: 5px solid var(--almirall-turquoise);
+  padding: 20px;
+  margin-bottom: 20px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.tab-content {
+  overflow-y: auto;
+  height: auto !important;
+  max-height: none !important;
+}
+
+.upload-grid {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 20px;
+  color: #333;
+  background-color: #f0f4f8;
+  border: 2px solid red !important;
+  border-radius: 10px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.1);
+}
+
+.example-links {
+  margin-top: 4px;
+  margin-bottom: 10px;
+  font-size: 0.85em;
+}
+
+.example-links a {
+  color: #9ecbff;
+  cursor: pointer;
+}
+
+.example-links a:hover {
+  text-decoration: underline;
+}
+
+.card-header {
+  text-align: left;
+}
