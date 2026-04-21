@@ -170,8 +170,20 @@ accordion(
                      value = 0.05, min = 0, max = 1, step = 0.01),
         numericInput("lfc", "Log\u2082 fold-change threshold",
                      value = 1, min = 0, step = 0.1),
-        checkboxInput("paired",           "Paired design",                       value = FALSE),
-        checkboxInput("block_effect",     "Block effect (duplicateCorrelation)", value = FALSE),
+        checkboxInput("paired",
+            tagList("Technical replicates",
+                tags$span(style="font-size:.8em;font-weight:400;color:#6c757d;display:block;",
+                    "Adds the ", tags$code("replicate"), " column to the model.",
+                    " Use when the same sample was measured more than once (e.g. injection replicates).")),
+            value = FALSE),
+        checkboxInput("block_effect",
+            tagList("Within-patient / donor correlations",
+                tags$span(style="font-size:.8em;font-weight:400;color:#6c757d;display:block;",
+                    "Fits limma with ", tags$code("duplicateCorrelation"), " using the ",
+                    tags$code("donor_id"), " column.",
+                    " Use when multiple samples come from the same patient or biological donor",
+                    " (repeated measures across conditions).")),
+            value = FALSE),
         checkboxInput("test_interaction", "Test interaction contrasts",           value = TRUE)
     ),
 
@@ -720,7 +732,7 @@ output$di_protein_plot <- renderPlotly({
             title    = gene_label,
             subtitle = if (nchar(prot_name) > 0) prot_name else NULL,
             x        = NULL,
-            y        = "Protein Abundance (Log\u2082)"
+            y        = "Protein Abundance Estimate (Log\u2082 (MaxLFQ))"
         ) +
         theme_almirall() +
         ggplot2::theme(
@@ -1538,13 +1550,21 @@ Standardized, design-aware downstream analysis of **label-free quantitative prot
 
 ---
 
-**Pipeline steps**
+**What does the pipeline do?**
 
-1. **Import** — reads your protein matrix and annotation into a `SummarizedExperiment`.
-2. **Filter** — removes proteins below the missingness threshold in all conditions.
-3. **Impute** — two-step, condition-aware strategy: *mean imputation* for partially missing proteins; *LDV (left-censored draw)* for proteins missing across an entire condition.
-4. **Differential testing** — `limma` with imputation-aware BH-FDR: LDV/LDV features are excluded from p-value adjustment.
-5. **Effect organisation** — splits results into `all_common_effect`, `common_effect` and `interaction_effect` per contrast.
+**1. Filtering** — Before any statistics, proteins that are too sparse are removed. A protein is kept only if it is detected in at least *X*% of samples within at least one experimental condition (the threshold is set in Parameters). This prevents unreliable proteins from inflating false-discovery rates.
+
+**2. Imputation** — Missing intensity values are filled in using a two-step strategy:
+- *Mean imputation*: if a protein is partially missing within a condition (below the imputation threshold), missing values are replaced by the mean of the observed values for that protein in that condition. This is appropriate for random, low-level missingness.
+- *LDV (Left-censored Distribution Value)*: if a protein is entirely absent in a condition, it is likely below the detection limit. Missing values are drawn randomly from the low-intensity tail of the global distribution. Proteins imputed as LDV in **both groups** of a contrast are automatically excluded from the BH-FDR correction to avoid spurious significance.
+
+**3. Differential testing** — A linear model is fitted with `limma` using the formula you specify. The design can include batch effects, donor effects, and interaction terms. The result for each protein is a log₂ fold change, a raw p-value, and a BH-adjusted p-value (FDR).
+
+**4. Interpreting the three output types**
+
+- **All proteins volcano** — Shows the estimated condition effect for every tested protein, regardless of whether that effect is stable across batches or donors. This is your first overview of the data.
+- **Common (stable) effect** — Proteins whose condition response is *consistent* across the secondary factor (e.g. batch, sex). These are the most biologically robust hits: the effect does not depend on which batch or subgroup you look at.
+- **Interaction effect** — Proteins whose condition response *differs significantly* between factor levels (e.g. the IL13 effect is strong in batch day1 but absent in day2). These are not false positives — they reflect genuine heterogeneity and may be biologically interesting, but should be interpreted carefully.
 
 ---
 
@@ -1639,7 +1659,7 @@ Full IL13 effects in batch day 1 (y) vs day 2 (x). Proteins off the diagonal sho
 ::: {}
 **About**
 
-Developed by **Aitor Moruno-Cuenca** with contributions from the Almirall Data Science R&D team (Dr. Sergi Sayols-Puig, Dr. Bruna Oriol-Tordera, Dr. Francesc Fernández-Albert, Dr. Elisa Monzón Casanova) and the CRG/UPF Proteomics Unit (Dr. Hiba Salim, Dr. Guadalupe Espadas-García, Prof. Dr. Eduard Sabidó-Aguade).
+Developed by **Aitor Moruno-Cuenca** with contributions from the Almirall Data Science R&D team (Dr. Sergi Sayols-Puig, Dr. Bruna Oriol-Tordera, Dr. Francesc Fernández-Albert, Dr. Elisa Monzón Casanova, Paula Delgado-Manzano) and the CRG/UPF Proteomics Unit (Dr. Hiba Salim, Dr. Guadalupe Espadas-García, Prof. Dr. Eduard Sabidó-Aguade).
 
 Supervised by Prof. Dr. Alexandre Perera-Lluna (UPC).
 
