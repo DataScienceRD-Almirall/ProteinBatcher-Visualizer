@@ -5,6 +5,6 @@ account: amoruno
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 17129129
-bundleId:
+bundleId: 11889524
 url: https://amoruno.shinyapps.io/ProteinBatcher_Visualizer/
 version: 1

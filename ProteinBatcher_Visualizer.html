@@ -88,14 +88,16 @@ Visualizer
 </div>
 <p>Standardized, design-aware downstream analysis of <strong>label-free quantitative proteomics</strong> (DIA-NN outputs). Upload your data, define contrasts, and run the full pipeline in a single click.</p>
 <hr>
-<strong>Pipeline steps</strong>
-<ol type="1">
-<li><strong>Import</strong> — reads your protein matrix and annotation into a <code>SummarizedExperiment</code>.</li>
-<li><strong>Filter</strong> — removes proteins below the missingness threshold in all conditions.</li>
-<li><strong>Impute</strong> — two-step, condition-aware strategy: <em>mean imputation</em> for partially missing proteins; <em>LDV (left-censored draw)</em> for proteins missing across an entire condition.</li>
-<li><strong>Differential testing</strong> — <code>limma</code> with imputation-aware BH-FDR: LDV/LDV features are excluded from p-value adjustment.</li>
-<li><strong>Effect organisation</strong> — splits results into <code>all_common_effect</code>, <code>common_effect</code> and <code>interaction_effect</code> per contrast.</li>
-</ol>
+<strong>What does the pipeline do?</strong>
+<p><strong>1. Filtering</strong> — Before any statistics, proteins that are too sparse are removed. A protein is kept only if it is detected in at least <em>X</em>% of samples within at least one experimental condition (the threshold is set in Parameters). This prevents unreliable proteins from inflating false-discovery rates.</p>
+<p><strong>2. Imputation</strong> — Missing intensity values are filled in using a two-step strategy: - <em>Mean imputation</em>: if a protein is partially missing within a condition (below the imputation threshold), missing values are replaced by the mean of the observed values for that protein in that condition. This is appropriate for random, low-level missingness. - <em>LDV (Left-censored Distribution Value)</em>: if a protein is entirely absent in a condition, it is likely below the detection limit. Missing values are drawn randomly from the low-intensity tail of the global distribution. Proteins imputed as LDV in <strong>both groups</strong> of a contrast are automatically excluded from the BH-FDR correction to avoid spurious significance.</p>
+<p><strong>3. Differential testing</strong> — A linear model is fitted with <code>limma</code> using the formula you specify. The design can include batch effects, donor effects, and interaction terms. The result for each protein is a log₂ fold change, a raw p-value, and a BH-adjusted p-value (FDR).</p>
+<strong>4. Interpreting the three output types</strong>
+<ul>
+<li><strong>All proteins volcano</strong> — Shows the estimated condition effect for every tested protein, regardless of whether that effect is stable across batches or donors. This is your first overview of the data.</li>
+<li><strong>Common (stable) effect</strong> — Proteins whose condition response is <em>consistent</em> across the secondary factor (e.g.&nbsp;batch, sex). These are the most biologically robust hits: the effect does not depend on which batch or subgroup you look at.</li>
+<li><strong>Interaction effect</strong> — Proteins whose condition response <em>differs significantly</em> between factor levels (e.g.&nbsp;the IL13 effect is strong in batch day1 but absent in day2). These are not false positives — they reflect genuine heterogeneity and may be biologically interesting, but should be interpreted carefully.</li>
+</ul>
 <hr>
 <strong>Getting started</strong>
 <ol type="1">
@@ -215,8 +217,8 @@ Support
 </div>
 <div class="html-fill-item html-fill-container">
 <strong>About</strong>
-<p>Developed by <strong>Aitor Moruno-Cuenca</strong> with contributions from the Almirall Data Science R&amp;D team (Dr.&nbsp;Sergi Sayols-Puig, Dr.&nbsp;Bruna Oriol-Tordera, Dr.&nbsp;Francesc Fernández-Albert), Molecular &amp; Cell Biology R&amp;D team (Dr.&nbsp;Elisa Monzón-Casanova, Dr.&nbsp;Félix Gil-Arranz, Dr.&nbsp;Marie-Helene Larraufie) and the CRG/UPF Proteomics Unit (Dr.&nbsp;Hiba Salim, Dr.&nbsp;Guadalupe Espadas-García, Prof.&nbsp;Dr.&nbsp;Eduard Sabidó-Aguade).</p>
-<p>The app development was supervised by Prof.&nbsp;Dr.&nbsp;Alexandre Perera-Lluna (UPC).</p>
+<p>Developed by <strong>Aitor Moruno-Cuenca</strong> with contributions from the Almirall Data Science R&amp;D team (Dr.&nbsp;Sergi Sayols-Puig, Dr.&nbsp;Bruna Oriol-Tordera, Dr.&nbsp;Francesc Fernández-Albert, Dr.&nbsp;Elisa Monzón Casanova, Paula Delgado-Manzano) and the CRG/UPF Proteomics Unit (Dr.&nbsp;Hiba Salim, Dr.&nbsp;Guadalupe Espadas-García, Prof.&nbsp;Dr.&nbsp;Eduard Sabidó-Aguade).</p>
+<p>Supervised by Prof.&nbsp;Dr.&nbsp;Alexandre Perera-Lluna (UPC).</p>
 <p><em>ProteinBatcher</em> v0.99.0 — MIT License.</p>
 </div>
 </div>
@@ -230,17 +232,17 @@ Support
 </div>
 </div>
 </div></div><aside id="bslib-sidebar-1" class="sidebar html-fill-container html-fill-item"><div class="html-fill-item html-fill-container">
-<div id="bslib-accordion-2052" class="accordion" data-require-bs-version="5" data-require-bs-caller="accordion()">
+<div id="bslib-accordion-5239" class="accordion" data-require-bs-version="5" data-require-bs-caller="accordion()">
 <div class="accordion-item" data-value="Input files">
 <div class="accordion-header">
-<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#bslib-accordion-panel-4396" aria-controls="bslib-accordion-panel-4396" aria-expanded="true">
+<button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#bslib-accordion-panel-5644" aria-controls="bslib-accordion-panel-5644" aria-expanded="true">
 <div class="accordion-icon">
 <i class="fas fa-upload" role="presentation" aria-label="upload icon"></i>
 </div>
 <div class="accordion-title">Input files</div>
 </button>
 </div>
-<div id="bslib-accordion-panel-4396" class="accordion-collapse collapse show">
+<div id="bslib-accordion-panel-5644" class="accordion-collapse collapse show">
 <div class="accordion-body">
 <div style="margin-bottom:16px;">
 <div class="form-group shiny-input-container">
@@ -301,14 +303,14 @@ Browse...
 </div>
 <div class="accordion-item" data-value="Contrasts">
 <div class="accordion-header">
-<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bslib-accordion-panel-8643" aria-expanded="false" aria-controls="bslib-accordion-panel-8643">
+<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bslib-accordion-panel-1352" aria-expanded="false" aria-controls="bslib-accordion-panel-1352">
 <div class="accordion-icon">
 <i class="fas fa-shuffle" role="presentation" aria-label="shuffle icon"></i>
 </div>
 <div class="accordion-title">Contrasts</div>
 </button>
 </div>
-<div id="bslib-accordion-panel-8643" class="accordion-collapse collapse">
+<div id="bslib-accordion-panel-1352" class="accordion-collapse collapse">
 <div class="accordion-body">
 <div class="form-group shiny-input-container">
 <label class="control-label" id="contrasts_file-label" for="contrasts_file">
@@ -341,14 +343,14 @@ Browse...
 </div>
 <div class="accordion-item" data-value="Parameters">
 <div class="accordion-header">
-<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bslib-accordion-panel-9016" aria-expanded="false" aria-controls="bslib-accordion-panel-9016">
+<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bslib-accordion-panel-7279" aria-expanded="false" aria-controls="bslib-accordion-panel-7279">
 <div class="accordion-icon">
 <i class="fas fa-sliders" role="presentation" aria-label="sliders icon"></i>
 </div>
 <div class="accordion-title">Parameters</div>
 </button>
 </div>
-<div id="bslib-accordion-panel-9016" class="accordion-collapse collapse">
+<div id="bslib-accordion-panel-7279" class="accordion-collapse collapse">
 <div class="accordion-body">
 <div class="form-group shiny-input-container no-baseline">
 <label class="control-label" id="percent_missing-label" for="percent_missing">Maximum missingness per protein (%)</label>
@@ -382,7 +384,15 @@ Browse...
 <div class="checkbox">
 <label>
 <input id="paired" type="checkbox" class="shiny-input-checkbox">
-<span>Paired design</span>
+<span>
+Technical replicates
+<span style="font-size:.8em;font-weight:400;color:#6c757d;display:block;">
+Adds the 
+<code>replicate</code>
+ column to the model.
+ Use when the same sample was measured more than once (e.g. injection replicates).
+</span>
+</span>
 </label>
 </div>
 </div>
@@ -390,7 +400,18 @@ Browse...
 <div class="checkbox">
 <label>
 <input id="block_effect" type="checkbox" class="shiny-input-checkbox">
-<span>Block effect (duplicateCorrelation)</span>
+<span>
+Within-patient / donor correlations
+<span style="font-size:.8em;font-weight:400;color:#6c757d;display:block;">
+Fits limma with 
+<code>duplicateCorrelation</code>
+ using the 
+<code>donor_id</code>
+ column.
+ Use when multiple samples come from the same patient or biological donor
+ (repeated measures across conditions).
+</span>
+</span>
 </label>
 </div>
 </div>
@@ -407,14 +428,14 @@ Browse...
 </div>
 <div class="accordion-item" data-value="Run analysis">
 <div class="accordion-header">
-<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bslib-accordion-panel-4171" aria-expanded="false" aria-controls="bslib-accordion-panel-4171">
+<button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#bslib-accordion-panel-9229" aria-expanded="false" aria-controls="bslib-accordion-panel-9229">
 <div class="accordion-icon">
 <i class="fas fa-play" role="presentation" aria-label="play icon"></i>
 </div>
 <div class="accordion-title">Run analysis</div>
 </button>
 </div>
-<div id="bslib-accordion-panel-4171" class="accordion-collapse collapse">
+<div id="bslib-accordion-panel-9229" class="accordion-collapse collapse">
 <div class="accordion-body">
 <button class="btn btn-default action-button btn-primary w-100" id="run_analysis" type="button"><span class="action-label"><i class="fas fa-flask" role="presentation" aria-label="flask icon"></i>
  Run ProteinBatcher</span></button>
@@ -473,7 +494,7 @@ Each point is a sample. Samples clustering together share similar global protein
         <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" style="height:1em;width:1em;" aria-hidden="true" role="img"><path d="M20 5C20 4.4 19.6 4 19 4H13C12.4 4 12 3.6 12 3C12 2.4 12.4 2 13 2H21C21.6 2 22 2.4 22 3V11C22 11.6 21.6 12 21 12C20.4 12 20 11.6 20 11V5ZM4 19C4 19.6 4.4 20 5 20H11C11.6 20 12 20.4 12 21C12 21.6 11.6 22 11 22H3C2.4 22 2 21.6 2 21V13C2 12.4 2.4 12 3 12C3.6 12 4 12.4 4 13V19Z"></path></svg>
     </span>
 </bslib-tooltip><script data-bslib-card-init="">bslib.Card.initializeAllCards();</script></div>
-<div class="card html-fill-item html-fill-container bslib-card" data-width="32%" data-title="Scree — Variance Explained" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
+<div class="card html-fill-item html-fill-container bslib-card" data-title="Scree — Variance Explained" data-width="32%" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
 <div class="card-header"><div class="card-title html-fill-item html-fill-container"><span style="display: inline">
 Scree — Variance Explained
 </span></div></div>
@@ -494,7 +515,7 @@ Bars: variance per PC. Dotted line: cumulative total. A steep early drop-off sug
     </span>
 </bslib-tooltip><script data-bslib-card-init="">bslib.Card.initializeAllCards();</script></div>
 </div><div class="html-fill-item html-fill-container bslib-grid" data-height="520px" style="display: grid; grid-template-rows: minmax(3em, 1fr) minmax(3em, 1fr); grid-auto-columns: minmax(0, 1fr);">
-<div class="card html-fill-item html-fill-container bslib-card" data-width="60%" data-title="Protein Abundance Explorer" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
+<div class="card html-fill-item html-fill-container bslib-card" data-title="Protein Abundance Explorer" data-width="60%" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
 <div class="card-header"><div class="card-title html-fill-item html-fill-container"><span style="display: inline">
 Protein Abundance Explorer
 </span></div></div>
@@ -521,7 +542,7 @@ Individual sample abundances (Log082) are shown per condition; the thick bar mar
         <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" style="height:1em;width:1em;" aria-hidden="true" role="img"><path d="M20 5C20 4.4 19.6 4 19 4H13C12.4 4 12 3.6 12 3C12 2.4 12.4 2 13 2H21C21.6 2 22 2.4 22 3V11C22 11.6 21.6 12 21 12C20.4 12 20 11.6 20 11V5ZM4 19C4 19.6 4.4 20 5 20H11C11.6 20 12 20.4 12 21C12 21.6 11.6 22 11 22H3C2.4 22 2 21.6 2 21V13C2 12.4 2.4 12 3 12C3.6 12 4 12.4 4 13V19Z"></path></svg>
     </span>
 </bslib-tooltip><script data-bslib-card-init="">bslib.Card.initializeAllCards();</script></div>
-<div class="card html-fill-item html-fill-container bslib-card" data-width="40%" data-title="Differential Expression Summary" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
+<div class="card html-fill-item html-fill-container bslib-card" data-title="Differential Expression Summary" data-width="40%" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
 <div class="card-header"><div class="card-title html-fill-item html-fill-container"><span style="display: inline">
 Differential Expression Summary
 </span></div></div>
@@ -729,7 +750,7 @@ log₂FC Distribution by Imputation Category — Density
         <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" style="height:1em;width:1em;" aria-hidden="true" role="img"><path d="M20 5C20 4.4 19.6 4 19 4H13C12.4 4 12 3.6 12 3C12 2.4 12.4 2 13 2H21C21.6 2 22 2.4 22 3V11C22 11.6 21.6 12 21 12C20.4 12 20 11.6 20 11V5ZM4 19C4 19.6 4.4 20 5 20H11C11.6 20 12 20.4 12 21C12 21.6 11.6 22 11 22H3C2.4 22 2 21.6 2 21V13C2 12.4 2.4 12 3 12C3.6 12 4 12.4 4 13V19Z"></path></svg>
     </span>
 </bslib-tooltip><script data-bslib-card-init="">bslib.Card.initializeAllCards();</script></div>
-<div class="card html-fill-item html-fill-container bslib-card" data-width="45%" data-title="log₂FC Distribution by Imputation Category — Boxplot" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
+<div class="card html-fill-item html-fill-container bslib-card" data-title="log₂FC Distribution by Imputation Category — Boxplot" data-width="45%" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
 <div class="card-header"><div class="card-title html-fill-item html-fill-container"><span style="display: inline">
 log₂FC Distribution by Imputation Category — Boxplot
 </span></div></div>
@@ -750,7 +771,7 @@ Box spans IQR, whiskers extend to 1.5×IQR; outliers shown as individual points.
     </span>
 </bslib-tooltip><script data-bslib-card-init="">bslib.Card.initializeAllCards();</script></div>
 </div><div class="html-fill-item html-fill-container bslib-grid" style="display: grid; grid-template-rows: minmax(3em, 1fr) minmax(3em, 1fr); grid-auto-columns: minmax(0, 1fr);">
-<div class="card html-fill-item html-fill-container bslib-card" data-width="50%" data-title="Imputation Category Summary Table" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
+<div class="card html-fill-item html-fill-container bslib-card" data-title="Imputation Category Summary Table" data-width="50%" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
 <div class="card-header"><div class="card-title html-fill-item html-fill-container"><span style="display: inline">
 Imputation Category Summary Table
 </span></div></div>
@@ -776,7 +797,7 @@ Imputation Category Summary Table
         <svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" style="height:1em;width:1em;" aria-hidden="true" role="img"><path d="M20 5C20 4.4 19.6 4 19 4H13C12.4 4 12 3.6 12 3C12 2.4 12.4 2 13 2H21C21.6 2 22 2.4 22 3V11C22 11.6 21.6 12 21 12C20.4 12 20 11.6 20 11V5ZM4 19C4 19.6 4.4 20 5 20H11C11.6 20 12 20.4 12 21C12 21.6 11.6 22 11 22H3C2.4 22 2 21.6 2 21V13C2 12.4 2.4 12 3 12C3.6 12 4 12.4 4 13V19Z"></path></svg>
     </span>
 </bslib-tooltip><script data-bslib-card-init="">bslib.Card.initializeAllCards();</script></div>
-<div class="card html-fill-item html-fill-container bslib-card" data-width="50%" data-title="Proteins Removed by Missingness Filter" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
+<div class="card html-fill-item html-fill-container bslib-card" data-title="Proteins Removed by Missingness Filter" data-width="50%" data-bslib-card-init="" data-require-bs-caller="card()" data-full-screen="false">
 <div class="card-header"><div class="card-title html-fill-item html-fill-container"><span style="display: inline">
 Proteins Removed by Missingness Filter
 </span></div></div>
@@ -1648,7 +1669,7 @@ output$di_protein_plot <- renderPlotly({
             title    = gene_label,
             subtitle = if (nchar(prot_name) > 0) prot_name else NULL,
             x        = NULL,
-            y        = "Protein Abundance (Log\u2082)"
+            y        = "Protein Abundance Estimate (Log\u2082 (MaxLFQ))"
         ) +
         theme_almirall() +
         ggplot2::theme(
