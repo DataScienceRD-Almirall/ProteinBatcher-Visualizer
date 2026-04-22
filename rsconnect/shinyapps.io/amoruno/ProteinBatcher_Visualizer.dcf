@@ -1,0 +1,10 @@
+name: ProteinBatcher_Visualizer
+title: ProteinBatcher_Visualizer
+username: amoruno
+account: amoruno
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 17129129
+bundleId:
+url: https://amoruno.shinyapps.io/ProteinBatcher_Visualizer/
+version: 1
