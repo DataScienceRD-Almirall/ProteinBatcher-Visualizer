@@ -170,20 +170,8 @@ accordion(
                      value = 0.05, min = 0, max = 1, step = 0.01),
         numericInput("lfc", "Log\u2082 fold-change threshold",
                      value = 1, min = 0, step = 0.1),
-        checkboxInput("paired",
-            tagList("Technical replicates",
-                tags$span(style="font-size:.8em;font-weight:400;color:#6c757d;display:block;",
-                    "Adds the ", tags$code("replicate"), " column to the model.",
-                    " Use when the same sample was measured more than once (e.g. injection replicates).")),
-            value = FALSE),
-        checkboxInput("block_effect",
-            tagList("Within-patient / donor correlations",
-                tags$span(style="font-size:.8em;font-weight:400;color:#6c757d;display:block;",
-                    "Fits limma with ", tags$code("duplicateCorrelation"), " using the ",
-                    tags$code("donor_id"), " column.",
-                    " Use when multiple samples come from the same patient or biological donor",
-                    " (repeated measures across conditions).")),
-            value = FALSE),
+        checkboxInput("paired",           "Paired design",                       value = FALSE),
+        checkboxInput("block_effect",     "Block effect (duplicateCorrelation)", value = FALSE),
         checkboxInput("test_interaction", "Test interaction contrasts",           value = TRUE)
     ),
 
@@ -196,6 +184,21 @@ accordion(
                      class = "btn-primary w-100"),
         tags$div(style = "margin-top:14px;"),
         uiOutput("run_status_ui")
+    ),
+
+    accordion_panel(
+        title = "Load / Save results",
+        icon  = icon("database"),
+
+        tags$div(style="font-size:.78em;color:#6c757d;margin-bottom:10px;",
+            icon("circle-info"),
+            " Load a previously saved results file to skip re-analysis,",
+            " or download results after running."),
+        fileInput("rds_input",
+            tagList(icon("upload"), " Load results (.rds)"),
+            accept = ".rds"),
+        tags$hr(style="margin:8px 0;border-color:#ffffff30;"),
+        uiOutput("dl_rds_ui")
     ),
 
     open = 1
@@ -732,7 +735,7 @@ output$di_protein_plot <- renderPlotly({
             title    = gene_label,
             subtitle = if (nchar(prot_name) > 0) prot_name else NULL,
             x        = NULL,
-            y        = "Protein Abundance Estimate (Log\u2082 (MaxLFQ))"
+            y        = "Protein Abundance (Log\u2082)"
         ) +
         theme_almirall() +
         ggplot2::theme(
@@ -842,15 +845,34 @@ observe({
 # ── Before/after intensity data ────────────────────────────────────────────────
 before_after_data <- reactive({
     req(rv$se_filt, rv$se_imp)
-    expr_b <- as.numeric(assay(rv$se_filt))
-    expr_a <- as.numeric(assay(rv$se_imp))
-    expr_b <- expr_b[!is.na(expr_b)]
-    n_na_b <- sum(is.na(as.numeric(assay(rv$se_filt))))
-    data.frame(
-        expression = c(expr_b, expr_a),
-        dataset    = c(rep("Before", length(expr_b)), rep("After", length(expr_a))),
+    imp_vec <- as.vector(metadata(rv$se_imp)$imputation_map)
+
+    expr_before <- as.numeric(assay(rv$se_filt))
+    expr_after  <- as.numeric(assay(rv$se_imp))
+    expr_before <- expr_before[!is.na(expr_before)]
+
+    # For density: Before observed vs After full matrix (normalised, so comparable)
+    df_density <- data.frame(
+        expression = c(expr_before, expr_after),
+        dataset    = c(rep("Before", length(expr_before)),
+                       rep("After",  length(expr_after))),
         stringsAsFactors = FALSE
     )
+
+    # For histogram: Before observed vs ONLY imputed values
+    # (so Before always has more counts than After — intuitive)
+    expr_imp_only <- expr_after[imp_vec != "none"]
+    df_hist <- data.frame(
+        expression = c(expr_before, expr_imp_only),
+        dataset    = c(rep("Before (observed)",   length(expr_before)),
+                       rep("After (imputed only)", length(expr_imp_only))),
+        stringsAsFactors = FALSE
+    )
+
+    list(density   = df_density,
+         histogram = df_hist,
+         n_filt    = nrow(rv$se_filt),
+         n_missing = sum(imp_vec != "none"))
 })
 
 # ── FC + imputation status data per contrast ───────────────────────────────────
@@ -948,19 +970,33 @@ output$imp_density_plot <- renderPlotly({
 # ── Histogram: before vs after ─────────────────────────────────────────────────
 output$imp_histogram_plot <- renderPlotly({
     req(before_after_data())
-    df <- before_after_data()
-    plot_ly(df, x=~expression, color=~dataset,
-            colors = c("Before"="#6c757d","After"="#008C94"),
-            type="histogram", opacity=0.55, nbinsx=60,
-            hovertemplate="<b>%{data.name}</b><br>Intensity: %{x:.2f}<br>Count: %{y}<extra></extra>") %>%
-    layout(
-        barmode="overlay",
-        title  = list(text="<b>Intensity Histogram</b><br><span style='font-size:11px;color:#6c757d;'>Before vs After Imputation</span>",
-                      font=list(family="Segoe UI",size=13,color="#002855"), x=0.01),
-        xaxis  = list(title="Log\u2082 Intensity", gridcolor="#e9ecef"),
-        yaxis  = list(title="Count", gridcolor="#e9ecef"),
-        legend = list(orientation="h", y=-0.22),
-        paper_bgcolor="white", plot_bgcolor="white", margin=list(t=70,b=65)
+    d    <- before_after_data()
+    df   <- d$histogram
+    cols <- c("Before (observed)"   = "#6c757d",
+              "After (imputed only)" = "#008C94")
+    p <- plot_ly()
+    for (ds in c("Before (observed)", "After (imputed only)")) {
+        sub <- df[df$dataset == ds, ]
+        if (!nrow(sub)) next
+        p <- p %>% add_histogram(
+            data = sub, x = ~expression, name = ds,
+            marker = list(color = cols[ds], opacity = 0.55,
+                          line  = list(color="white", width=0.3)),
+            nbinsx = 60,
+            hovertemplate = paste0("<b>",ds,"</b><br>Intensity: %{x:.2f}<br>Count: %{y}<extra></extra>"))
+    }
+    p %>% layout(
+        barmode = "overlay",
+        title   = list(
+            text = paste0("<b>Intensity Histogram</b>",
+                          "<br><span style='font-size:11px;color:#6c757d;'>",
+                          "Grey: observed values | Teal: imputed values only (",
+                          format(d$n_missing, big.mark=","), " added)</span>"),
+            font = list(family="Segoe UI",size=13,color="#002855"), x=0.01),
+        xaxis   = list(title="Log\u2082 Intensity (MaxLFQ)", gridcolor="#e9ecef"),
+        yaxis   = list(title="Count", gridcolor="#e9ecef"),
+        legend  = list(orientation="h", y=-0.22),
+        paper_bgcolor="white", plot_bgcolor="white", margin=list(t=75,b=65)
     ) %>% config(displayModeBar=TRUE, modeBarButtonsToRemove=c("lasso2d","select2d"),
                  toImageButtonOptions=list(format="png", filename="imputation_histogram"))
 })
@@ -1167,6 +1203,116 @@ output$dl_after_matrix <- downloadHandler(
     }
 )
 
+# ── RDS download (shown only when analysis is done) ────────────────────────────
+output$dl_rds_ui <- renderUI({
+    if (rv$status != "done")
+        return(tags$div(class="text-muted", style="font-size:.78em;",
+                        icon("circle-info"), " Run the analysis first to enable download."))
+    downloadButton("dl_rds",
+        label = tagList(icon("download"), " Download results (.rds)"),
+        class = "btn btn-sm btn-outline-light w-100",
+        style = "font-size:.82em;")
+})
+
+output$dl_rds <- downloadHandler(
+    filename = function() paste0(input$experiment, "_results_", Sys.Date(), ".rds"),
+    content  = function(f) {
+        req(rv$status == "done")
+        saveRDS(list(
+            se_raw            = rv$se_raw,
+            se_filt           = rv$se_filt,
+            removed           = rv$removed,
+            se_imp            = rv$se_imp,
+            se_limma          = rv$se_limma,
+            effects           = rv$effects,
+            tests             = rv$tests,
+            tests_interaction = rv$tests_interaction,
+            contrasts         = rv$contrasts
+        ), f)
+    }
+)
+
+observeEvent(input$rds_input, {
+    req(input$rds_input)
+    tryCatch({
+        res <- readRDS(input$rds_input$datapath)
+        req_fields <- c("se_imp", "se_limma", "effects", "tests")
+        missing_f  <- setdiff(req_fields, names(res))
+        if (length(missing_f))
+            stop(paste("Invalid RDS — missing fields:", paste(missing_f, collapse=", ")))
+        rv$se_raw            <- if (!is.null(res$se_raw))  res$se_raw  else res$se_imp
+        rv$se_filt           <- if (!is.null(res$se_filt)) res$se_filt else res$se_imp
+        rv$removed           <- res$removed
+        rv$se_imp            <- res$se_imp
+        rv$se_limma          <- res$se_limma
+        rv$effects           <- res$effects
+        rv$tests             <- res$tests
+        rv$tests_interaction <- if (!is.null(res$tests_interaction)) res$tests_interaction else "NA"
+        rv$contrasts         <- res$contrasts
+        rv$status            <- "done"
+        rv$error_msg         <- NULL
+    }, error = function(e) {
+        rv$status    <- "error"
+        rv$error_msg <- paste("Failed to load RDS:", conditionMessage(e))
+    })
+})
+
+# ── RDS download (shown only when analysis is done) ────────────────────────────
+output$dl_rds_ui <- renderUI({
+    if (rv$status != "done")
+        return(tags$div(class="text-muted", style="font-size:.78em;",
+                        icon("circle-info"), " Run the analysis first to enable download."))
+    downloadButton("dl_rds",
+        label = tagList(icon("download"), " Download results (.rds)"),
+        class = "btn btn-sm btn-outline-light w-100",
+        style = "font-size:.82em;")
+})
+
+output$dl_rds <- downloadHandler(
+    filename = function() paste0(input$experiment, "_results_", Sys.Date(), ".rds"),
+    content  = function(f) {
+        req(rv$status == "done")
+        saveRDS(list(
+            se_raw            = rv$se_raw,
+            se_filt           = rv$se_filt,
+            removed           = rv$removed,
+            se_imp            = rv$se_imp,
+            se_limma          = rv$se_limma,
+            effects           = rv$effects,
+            tests             = rv$tests,
+            tests_interaction = rv$tests_interaction,
+            contrasts         = rv$contrasts
+        ), f)
+    }
+)
+
+# ── RDS upload: restore a previous results object ──────────────────────────────
+observeEvent(input$rds_input, {
+    req(input$rds_input)
+    tryCatch({
+        res <- readRDS(input$rds_input$datapath)
+        req_fields <- c("se_imp", "se_limma", "effects", "tests")
+        missing_f  <- setdiff(req_fields, names(res))
+        if (length(missing_f))
+            stop(paste("Invalid RDS — missing fields:", paste(missing_f, collapse=", ")))
+        rv$se_raw            <- if (!is.null(res$se_raw))  res$se_raw  else res$se_imp
+        rv$se_filt           <- if (!is.null(res$se_filt)) res$se_filt else res$se_imp
+        rv$removed           <- res$removed
+        rv$se_imp            <- res$se_imp
+        rv$se_limma          <- res$se_limma
+        rv$effects           <- res$effects
+        rv$tests             <- res$tests
+        rv$tests_interaction <- if (!is.null(res$tests_interaction)) res$tests_interaction else "NA"
+        rv$contrasts         <- res$contrasts
+        rv$status            <- "done"
+        rv$error_msg         <- NULL
+    }, error = function(e) {
+        rv$status    <- "error"
+        rv$error_msg <- paste("Failed to load RDS:", conditionMessage(e))
+    })
+})
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 # DIFFERENTIAL EXPRESSION — server logic
 # ════════════════════════════════════════════════════════════════════════════════
@@ -1184,6 +1330,44 @@ observe({
             "Common (stable) effect" = "common_effect")
     if (has_int) ch["Interaction effect"] <- "interaction_effect"
     updateSelectInput(session, "de_effect_type", choices = ch, selected = "all_common_effect")
+})
+
+# ── Populate de_inter_level when contrast changes ──────────────────────────────
+observe({
+    req(rv$status == "done", input$de_contrast, rv$se_limma)
+    if (identical(rv$tests_interaction, "NA")) {
+        updateSelectInput(session, "de_inter_level",
+                          choices  = c("No interactions available" = ""),
+                          selected = "")
+        return()
+    }
+    rd_cols <- colnames(as.data.frame(rowData(rv$se_limma)))
+    cond_n  <- make.names(sub("_vs_.*", "", input$de_contrast))
+
+    # Candidates: interaction contrasts that have matching rowData columns
+    cands <- rv$tests_interaction[rv$tests_interaction != "NA"]
+    cands <- cands[paste0("log2FC_", cands) %in% rd_cols]
+    # Prefer those starting with the current condition
+    pref  <- cands[grepl(paste0("^", cond_n, "\\."), make.names(cands))]
+    if (length(pref)) cands <- pref
+
+    if (!length(cands)) {
+        updateSelectInput(session, "de_inter_level",
+                          choices  = c("No valid interaction contrasts" = ""),
+                          selected = "")
+        return()
+    }
+    # Build human-readable labels: e.g. "IL13.batchday2" -> "batch: day2"
+    pretty <- sapply(cands, function(x) {
+        suffix <- sub(paste0("^", cond_n, "\\."), "", make.names(x))
+        var    <- regmatches(suffix, regexpr("^[a-zA-Z]+", suffix))
+        lvl    <- sub(paste0("^", var), "", suffix)
+        if (nchar(var) > 0 && nchar(lvl) > 0) paste0(var, ": ", lvl) else suffix
+    })
+    names(cands) <- pretty
+    updateSelectInput(session, "de_inter_level",
+                      choices  = cands,
+                      selected = cands[1])
 })
 
 # ── Determine contrast column for a given effect slot ─────────────────────────
@@ -1345,11 +1529,17 @@ output$de_volcano_plot <- renderPlotly({
 de_dereg_data <- reactive({
     req(rv$status == "done", input$de_contrast, rv$se_limma)
     if (identical(rv$tests_interaction, "NA")) return(NULL)
-    ct    <- input$de_contrast
-    idx   <- which(rv$tests == ct)
-    if (!length(idx)) return(NULL)
-    inter_ct <- rv$tests_interaction[min(idx, length(rv$tests_interaction))]
-    if (identical(inter_ct, "NA")) return(NULL)
+    ct <- input$de_contrast
+    # Use the selector when populated; fallback to first matching interaction contrast
+    inter_ct <- if (!is.null(input$de_inter_level) &&
+                    nchar(trimws(input$de_inter_level)) > 0)
+                    input$de_inter_level
+                else {
+                    idx <- which(rv$tests == ct)
+                    if (!length(idx)) return(NULL)
+                    rv$tests_interaction[min(idx, length(rv$tests_interaction))]
+                }
+    if (is.null(inter_ct) || identical(inter_ct, "NA")) return(NULL)
     rd <- as.data.frame(rowData(rv$se_limma))
     cols_need <- c(paste0("log2FC_",ct), paste0("p.adj_",ct),
                    paste0("log2FC_",inter_ct), paste0("p.adj_",inter_ct))
@@ -1476,7 +1666,7 @@ output$de_dereg_panel_ui <- renderUI({
     tagList(
         tags$p(style="font-size:.83em;color:#6c757d;margin-bottom:8px;",
                icon("circle-info"),
-               paste0(" Factor: ", tags$b(fac_name), " (",fac_lev,")."),
+               " Factor: ", tags$b(fac_name), " (", fac_lev, ").",
                " Red = significant interaction; blue = condition-only; grey = not significant."),
         plotlyOutput("de_dereg_plot", height="420px"),
         tags$p(style="font-size:.82em;color:#6c757d;margin-top:6px;padding:0 2px;",
@@ -1550,21 +1740,13 @@ Standardized, design-aware downstream analysis of **label-free quantitative prot
 
 ---
 
-**What does the pipeline do?**
+**Pipeline steps**
 
-**1. Filtering** — Before any statistics, proteins that are too sparse are removed. A protein is kept only if it is detected in at least *X*% of samples within at least one experimental condition (the threshold is set in Parameters). This prevents unreliable proteins from inflating false-discovery rates.
-
-**2. Imputation** — Missing intensity values are filled in using a two-step strategy:
-- *Mean imputation*: if a protein is partially missing within a condition (below the imputation threshold), missing values are replaced by the mean of the observed values for that protein in that condition. This is appropriate for random, low-level missingness.
-- *LDV (Left-censored Distribution Value)*: if a protein is entirely absent in a condition, it is likely below the detection limit. Missing values are drawn randomly from the low-intensity tail of the global distribution. Proteins imputed as LDV in **both groups** of a contrast are automatically excluded from the BH-FDR correction to avoid spurious significance.
-
-**3. Differential testing** — A linear model is fitted with `limma` using the formula you specify. The design can include batch effects, donor effects, and interaction terms. The result for each protein is a log₂ fold change, a raw p-value, and a BH-adjusted p-value (FDR).
-
-**4. Interpreting the three output types**
-
-- **All proteins volcano** — Shows the estimated condition effect for every tested protein, regardless of whether that effect is stable across batches or donors. This is your first overview of the data.
-- **Common (stable) effect** — Proteins whose condition response is *consistent* across the secondary factor (e.g. batch, sex). These are the most biologically robust hits: the effect does not depend on which batch or subgroup you look at.
-- **Interaction effect** — Proteins whose condition response *differs significantly* between factor levels (e.g. the IL13 effect is strong in batch day1 but absent in day2). These are not false positives — they reflect genuine heterogeneity and may be biologically interesting, but should be interpreted carefully.
+1. **Import** — reads your protein matrix and annotation into a `SummarizedExperiment`.
+2. **Filter** — removes proteins below the missingness threshold in all conditions.
+3. **Impute** — two-step, condition-aware strategy: *mean imputation* for partially missing proteins; *LDV (left-censored draw)* for proteins missing across an entire condition.
+4. **Differential testing** — `limma` with imputation-aware BH-FDR: LDV/LDV features are excluded from p-value adjustment.
+5. **Effect organisation** — splits results into `all_common_effect`, `common_effect` and `interaction_effect` per contrast.
 
 ---
 
@@ -1579,6 +1761,15 @@ Standardized, design-aware downstream analysis of **label-free quantitative prot
 
 **Contrasts file format**
 
+The contrasts file has three sections. The `[design]` section defines the statistical model:
+
+ - `formula`: the R formula for the design matrix (e.g. `~ 0 + condition + batch`). Include `condition:batch` only if you want to test interaction effects.
+ - `reference_condition`: the baseline condition name, exactly as it appears in the annotation file.
+
+The `[tests]` section lists the main contrasts to test, one per line, in the format `ConditionA_vs_ConditionB` where ConditionA is the numerator and ConditionB is the denominator (reference).
+
+The `[interaction_tests]` section (optional) lists interaction contrasts. Each entry follows the format `<ConditionA>.<factor><level>` — this tests whether the effect of ConditionA changes between the reference level and `<level>` of `<factor>`. For example, `IL13.batchday2` tests whether the IL13 response differs between batch day1 (reference) and batch day2. You need one entry **per non-reference level per factor per test condition**.
+
 ```
 [design]
 formula = ~ 0 + condition + batch + condition:batch
@@ -1589,9 +1780,16 @@ IL13_vs_NoTreated
 IL22_vs_NoTreated
 
 [interaction_tests]
+# Format: <condition>.<factor><non-reference-level>
+# Tests if IL13 effect differs between batchday1 (ref) and batchday2
 IL13.batchday2
 IL22.batchday2
+# If batch had 3 levels (day1=ref, day2, day3), you would add:
+# IL13.batchday3
+# IL22.batchday3
 ```
+
+> **Tip:** The factor and level names in `[interaction_tests]` must match how R constructs the column names in the design matrix. Run `make.names("batchday2")` in R to check if special characters get escaped.
 :::
 
 ::: {.card}
@@ -1659,9 +1857,9 @@ Full IL13 effects in batch day 1 (y) vs day 2 (x). Proteins off the diagonal sho
 ::: {}
 **About**
 
-Developed by **Aitor Moruno-Cuenca** with contributions from the Almirall Data Science R&D team (Dr. Sergi Sayols-Puig, Dr. Bruna Oriol-Tordera, Dr. Francesc Fernández-Albert, Dr. Elisa Monzón Casanova, Paula Delgado-Manzano) and the CRG/UPF Proteomics Unit (Dr. Hiba Salim, Dr. Guadalupe Espadas-García, Prof. Dr. Eduard Sabidó-Aguade).
+Developed by **Aitor Moruno-Cuenca** with contributions from the Almirall R&D team (Dr. Sergi Sayols-Puig, Dr. Bruna Oriol-Tordera, Dr. Francesc Fernández-Albert, Dr. Elisa Monzón Casanova, Dr. Sergi Sayols-Puig, Dr. Marie-Helene Larraufie, Feliz Gil-Arranz, Paula Delgado-Manzano) and the CRG/UPF Proteomics Unit (Dr. Hiba Salim, Dr. Guadalupe Espadas-García, Prof. Dr. Eduard Sabidó-Aguade).
 
-Supervised by Prof. Dr. Alexandre Perera-Lluna (UPC).
+App development supervised by Prof. Dr. Alexandre Perera-Lluna (UPC).
 
 *ProteinBatcher* v0.99.0 — MIT License.
 :::
@@ -1739,6 +1937,24 @@ tags$div(
 uiOutput("di_metrics_ui")
 ```
 
+## Row
+
+::: {.card title="Differential Expression Summary — All Contrasts"}
+
+```{r}
+tags$p(style="font-size:.83em;color:#6c757d;margin-bottom:8px;",
+       icon("circle-info"),
+       " Up/down counts apply the \u03b1 and log\u2082FC thresholds set in Parameters.",
+       " Select the contrast for DE counts in the sidebar.")
+DT::DTOutput("di_summary_table")
+```
+
+<p style="font-size:.82em;color:#6c757d;margin-top:8px;padding:0 2px;">
+<b>\u22651 imputed</b>: proteins with at least one imputed value in either group.
+LDV/LDV pairs are excluded from BH correction and will have <em>NA</em> adjusted p-values.
+</p>
+:::
+
 ## Row {height="470px"}
 
 ::: {.card title="Principal Component Analysis"}
@@ -1767,7 +1983,7 @@ A steep early drop-off suggests the biological signal is concentrated in the fir
 
 ## Row {height="520px"}
 
-::: {.card title="Protein Abundance Explorer" width="60%"}
+::: {.card title="Protein Abundance Explorer"}
 
 ```{r}
 tags$p(style="font-size:.83em;color:#6c757d;margin-bottom:8px;",
@@ -1778,23 +1994,8 @@ plotlyOutput("di_protein_plot", height = "410px")
 ```
 
 <p style="font-size:.82em;color:#6c757d;margin-top:6px;padding:0 2px;">
-Individual sample abundances (Log\u2082) are shown per condition; the thick bar marks the condition mean.
+Individual sample abundances (Log\u2082 MaxLFQ) are shown per condition; the thick bar marks the condition mean.
 Open circles are imputed values (mean or LDV strategy) — interpret with caution for proteins with high missingness.
-</p>
-:::
-
-::: {.card title="Differential Expression Summary" width="40%"}
-
-```{r}
-tags$p(style="font-size:.83em;color:#6c757d;margin-bottom:8px;",
-       icon("circle-info"),
-       " Up/down counts apply the \u03b1 and log\u2082FC thresholds set in Parameters.")
-DT::DTOutput("di_summary_table")
-```
-
-<p style="font-size:.82em;color:#6c757d;margin-top:8px;padding:0 2px;">
-<b>\u22651 imputed</b>: proteins with at least one imputed value in either group.
-LDV/LDV pairs are excluded from BH correction and will have <em>NA</em> adjusted p-values.
 </p>
 :::
 
@@ -1967,6 +2168,19 @@ tags$div(
 
     tags$div(style="font-size:.73em;font-weight:700;text-transform:uppercase;
                     letter-spacing:.08em;color:#00F0BE;margin-bottom:8px;",
+             icon("arrows-left-right"), " Deregulogram X axis"),
+    selectInput("de_inter_level", "Interaction level (X axis)",
+                choices=NULL, selected=NULL),
+    tags$div(class="text-muted mt-1", style="font-size:.78em;line-height:1.4;",
+             icon("circle-info"),
+             " Choose which factor level to compare on the X axis.",
+             " Y axis is always the reference level of the model.",
+             " Updated automatically when contrast changes."),
+
+    tags$hr(style="border-color:#ffffff30;margin:14px 0;"),
+
+    tags$div(style="font-size:.73em;font-weight:700;text-transform:uppercase;
+                    letter-spacing:.08em;color:#00F0BE;margin-bottom:8px;",
              icon("table"), " DEG Table Filter"),
     textInput("de_gene_filter", "Filter table by gene / protein ID",
               value="", placeholder="e.g. SERPINB3, CCL26\u2026"),
@@ -2023,4 +2237,105 @@ Proteins are sorted by adjusted p-value (ascending).
 The <b>Imputed</b> flag indicates proteins with at least one LDV or mean-imputed value.
 For interaction-effect results, log\u2082FC and adj.p refer to the interaction coefficient, not the main effect.
 </p>
+:::
+
+# Methods
+
+## {.sidebar}
+
+```{r methods-sidebar}
+tags$div(
+    style = "padding:4px 0;",
+    tags$div(style="font-size:.73em;font-weight:700;text-transform:uppercase;
+                    letter-spacing:.08em;color:#00F0BE;margin-bottom:8px;",
+             icon("book-open"), " Contents"),
+    tags$ul(style="font-size:.84em;line-height:2;padding-left:1.2em;",
+        tags$li(tags$a(href="#technical-replicates", "Technical replicates")),
+        tags$li(tags$a(href="#within-patient",       "Within-patient correlations")),
+        tags$li(tags$a(href="#imputation",           "Imputation strategy")),
+        tags$li(tags$a(href="#limma",                "Differential testing"))
+    )
+)
+```
+
+## Row
+
+::: {.card}
+
+### Statistical Methods {.card-title}
+
+---
+
+#### Technical replicates — `replicate` column {#technical-replicates}
+
+**What it models.** When the same biological sample is measured more than once (e.g. two MS injections of the same lysate), the measurements are not independent. Enabling this option adds the `replicate` column from the annotation to the limma design matrix as a fixed effect, absorbing the within-sample technical variance and increasing power to detect true biological differences.
+
+**Formula change.** 
+
+ - Without replicates: `~ 0 + condition + batch`. 
+ - With replicates: `~ 0 + condition + batch + replicate`. The `replicate` column must be present in the annotation file and should uniquely identify which measurements belong to the same original
+ sample (e.g. `rep1`, `rep2`, or sample IDs like `S01`, `S01`, `S02`, `S02`).
+
+**When to use.** 
+
+ - Inject each sample in duplicate or triplicate for QC purposes. 
+ - Re-run a batch on a different day and want to treat both runs of the same sample as one measurement. 
+ 
+ **When NOT to use**
+
+ - When every row in the annotation is a distinct biological sample — the replicate column would be all-unique. Otherwise using it, your model will overparametrized for no reason.
+
+---
+
+#### Within-patient / donor correlations — `donor_id` column {#within-patient}
+
+**What it models.** In studies where the biological replicate contributes to multiple conditions (e.g. before/after treatment, or response to stimulation vs non-responder measured from the same biological replicate), proteomics values from the same donor are correlated. Ignoring this inflates the false-positive rate. Enabling this option calls `limma::duplicateCorrelation()` to estimate a single within-donor intraclass correlation, then refits the model accounting for it.
+
+**Formula change.** The design formula itself does not change, but limma internally treats the `donor_id` column as a random blocking factor. This is the mixed-model equivalent of a paired t-test extended to multiple conditions. The `donor_id` column in the annotation must identify the biological individual (not the sample).
+
+**When to use.** 
+
+ - Paired designs: same biological replicate before and after treatment. 
+ - Crossover designs: same donor exposed to multiple conditions. 
+ - Multi-condition studies where each biological replicate contributes more than one sample. 
+
+**When NOT to use.**
+
+ - If each biological replicate appears in only one condition — there is no within-donor pairing to use and `duplicateCorrelation` will not be reasonable. 
+ - Do not combine with `Technical replicates` unless your replicates are nested within donors and the design is balanced.
+
+**Mathematical note.** Let $Y$ be the protein abundance matrix. The model is:
+
+$$Y = Xβ + Zb + ε$$
+
+where $X$ is the fixed-effect design matrix (condition, batch), $Z$ is the donor indicator matrix, $b \sim N(0, \sigma^2_b)$ are the donor random effects, and $\varepsilon \sim N(0, \sigma^2_e)$. `duplicateCorrelation` estimates $\rho = \sigma^2_b/(\sigma^2_b+\sigma^2_e)$ and passes it to `lmFit` via the `block` and `correlation` arguments.
+
+---
+
+#### Imputation strategy {#imputation}
+
+ProteinBatcher uses a **two-step** (that can be condition-aware or global, by default condition-aware) approach:
+
+1. **Mean imputation** — if a protein is detected in at least *threshold*% of samples within a condition but has some missing values, those missing values are imputed by the observed mean for that protein in that condition. This assumes missingness is random (MCAR/MAR) and preserves the observed mean without introducing a shift.
+
+2. **LDV (Left-censored Distribution Value)** — if a protein is entirely undetected in a condition, it is likely below the instrument's limit of detection. Missing values are drawn randomly from the low-intensity tail of the global intensity distribution. This mimics values just below the detection threshold. Proteins imputed as LDV in **both** groups of a contrast are excluded from BH-FDR correction, since their p-values are driven by the imputed distribution, not by genuine biological signal.
+
+---
+
+#### Differential testing with limma {#limma}
+
+Protein-level log₂ MaxLFQ intensities are modelled with `limma`'s linear model framework. For each protein:
+
+$$\log_2(abundance) = \beta_0 +  \beta_{condition} + \beta_{batch} + \beta_{interaction} + \varepsilon$$
+
+Empirical Bayes shrinkage (`eBayes`) is applied to moderate the per-protein variance estimates, borrowing strength across all proteins. Multiple testing correction uses the Benjamini–Hochberg (BH) procedure on all proteins that are not in the LDV/LDV category.
+
+The three output types reflect different contrasts:
+
+| Output | What it tests | When to trust it |
+|--------|--------------|-----------------|
+| **All proteins** | Main condition effect $\beta_{condition}$ | First overview; may include proteins whose effect changes across batches |
+| **Common effect** | Condition effect constrained to be the same across factor levels | Most biologically robust; consistent across strata |
+| **Interaction effect** | Difference in condition effect between factor levels ($\beta_{interaction}$) | Proteins regulated differently in different batches/sexes/timepoints |
+
 :::
