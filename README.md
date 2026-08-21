@@ -1,4 +1,4 @@
-# ProteinBatcher-Visualizer
+# ProteinBatcher-App
 
 ## Dependencies
 
@@ -13,4 +13,16 @@ BiocManager::install(c("SummarizedExperiment", "S4Vectors"),
 # Install ProteinBatcher (GitHub repository or Bioconductor when available)
 remotes::install_github("DataScienceRD-Almirall/ProteinBatcher", 
                         upgrade = "never")
-``
+```
+
+## Running locally
+
+```r
+quarto serve
+```
+
+## Deploying to shinyapps.io
+
+```r
+rsconnect::deployApp(appName = "ProteinBatcher_App")
+```

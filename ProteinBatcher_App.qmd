@@ -1,5 +1,5 @@
 ---
-title: "ProteinBatcher Analyst"
+title: "ProteinBatcher App"
 author: "Almirall S.A. & CRG/UPF Proteomics Unit"
 format:
     dashboard:
@@ -134,17 +134,24 @@ accordion(
         icon  = icon("upload"),
 
         tags$div(style = "margin-bottom:16px;",
+            radioButtons("annotation_format",
+                "Annotation format",
+                choices = c("Standard TSV" = "standard",
+                            "SDRF" = "sdrf"),
+                selected = "standard",
+                inline = TRUE),
             fileInput("annotation",
                 tags$span("Annotation file", tags$code("(.tsv)")),
                 accept = ".tsv"),
+            uiOutput("sdrf_map_ui"),
             tags$div(class = "example-links",
                 icon("circle-info", style = "color:#6c757d;font-size:.8em;"), " Example: ",
                 downloadLink("example_annotation", "annotation_HaCaT.tsv"))
         ),
         tags$div(
             fileInput("counts",
-                tags$span("DIA-NN protein matrix", tags$code("(.pg_matrix.tsv)")),
-                accept = ".tsv"),
+                tags$span("DIA-NN protein matrix", tags$code("(.pg_matrix.tsv / .mzTab)")),
+                accept = c(".tsv", ".mzTab", ".mztab", ".mztab.gz")),
             tags$div(class = "example-links",
                 icon("circle-info", style = "color:#6c757d;font-size:.8em;"), " Example: ",
                 downloadLink("example_counts", "HaCaT_pg_matrix.tsv"))
@@ -182,6 +189,7 @@ accordion(
                      value = 1, min = 0, step = 0.1),
         checkboxInput("paired",           "Paired design",                       value = FALSE),
         checkboxInput("block_effect",     "Block effect (duplicateCorrelation)", value = FALSE),
+        uiOutput("block_var_ui"),
         checkboxInput("test_interaction", "Test interaction contrasts",           value = TRUE)
     ),
 
@@ -255,6 +263,44 @@ output$example_contrasts <- downloadHandler(
         system.file("extdata/example_contrasts.txt", package = "ProteinBatcher"), f),
     contentType = "text/plain"
 )
+
+# ── SDRF column mapping UI (shown only when SDRF format is selected) ──────────
+output$sdrf_map_ui <- renderUI({
+    if (input$annotation_format != "sdrf") return(NULL)
+    tagList(
+        tags$hr(style = "margin: 8px 0;"),
+        tags$p(style = "font-size:.85em;color:#6c757d;",
+               "Map SDRF columns to ProteinBatcher fields:"),
+        textInput("sdrf_map_condition",
+                  "Condition column (factor value[...])",
+                  value = "factor value[condition]"),
+        textInput("sdrf_map_batch",
+                  "Batch column (optional)",
+                  value = ""),
+        textInput("sdrf_map_donor_id",
+                  "Donor ID column (optional)",
+                  value = "")
+    )
+})
+
+# ── Block variable selector (shown only when block_effect is checked) ─────────
+output$block_var_ui <- renderUI({
+    if (!isTRUE(input$block_effect)) return(NULL)
+    cd <- NULL
+    if (!is.null(rv$se_raw)) {
+        cd <- colnames(SummarizedExperiment::colData(rv$se_raw))
+    }
+    candidate_cols <- intersect(
+        c("donor_id", "batch", "replicate"), cd)
+    if (length(candidate_cols) == 0) {
+        candidate_cols <- setdiff(cd, c("label", "sample_name", "file", "sample"))
+    }
+    selectInput("block_var",
+                "Block variable (colData column)",
+                choices = candidate_cols,
+                selected = if ("donor_id" %in% candidate_cols) "donor_id"
+                           else candidate_cols[1])
+})
 
 # ── Parse contrasts on upload ──────────────────────────────────────────────────
 observeEvent(input$contrasts_file, {
@@ -341,7 +387,7 @@ observeEvent(input$run_analysis, {
     }
     if (is.null(input$counts)) {
         rv$status <- "error"
-        rv$error_msg <- "Please upload a DIA-NN protein matrix (.pg_matrix.tsv)."
+        rv$error_msg <- "Please upload a DIA-NN protein matrix (.pg_matrix.tsv or .mzTab)."
         return()
     }
     if (is.null(rv$contrasts)) {
@@ -369,7 +415,16 @@ observeEvent(input$run_analysis, {
             se_raw <- ProteinBatcher:::make_se_from_files(
                 quant_table_path = input$counts$datapath,
                 exp_anno_path    = input$annotation$datapath,
-                type = "DIA", level = "protein")
+                type = "DIA", level = "protein",
+                annotation_format = input$annotation_format,
+                sdrf_map = if (input$annotation_format == "sdrf") {
+                    sdrf_map <- list(condition = input$sdrf_map_condition)
+                    if (nzchar(input$sdrf_map_batch))
+                        sdrf_map$batch <- input$sdrf_map_batch
+                    if (nzchar(input$sdrf_map_donor_id))
+                        sdrf_map$donor_id <- input$sdrf_map_donor_id
+                    sdrf_map
+                } else NULL)
 
             ## Apply user-specified reference levels from the contrasts file.
             ## test_limma_customized() handles `condition` via `ref_condition`,
@@ -412,7 +467,10 @@ observeEvent(input$run_analysis, {
                 design_formula   = ct$formula,
                 ref_condition    = ct$reference_condition,
                 paired           = input$paired,
-                block_effect     = input$block_effect)
+                block_effect     = input$block_effect,
+                block_var        = if (isTRUE(input$block_effect) &&
+                                       !is.null(input$block_var))
+                                       input$block_var else "donor_id")
 
             incProgress(0.20, detail = "Organising effects\u2026")
             effects <- ProteinBatcher:::.pp_organize_effects(
@@ -2157,9 +2215,9 @@ output$de_deg_table <- DT::renderDT({
 ::: {.layout-ncol=2}
 
 ::: {.card}
-### ProteinBatcher Analyst {.card-title}
+### ProteinBatcher App {.card-title}
 
-Standardized, design-aware downstream analysis of **label-free quantitative proteomics** (DIA-NN outputs). Upload your data, define contrasts, and run the full pipeline in a single click. **ProteinBatcher Analyst** combines the ProteinBatcher pipeline with an interactive visualization layer so you can both analyse and explore your experiment in one place.
+Standardized, design-aware downstream analysis of **label-free quantitative proteomics** (DIA-NN outputs). Upload your data, define contrasts, and run the full pipeline in a single click. **ProteinBatcher App** combines the ProteinBatcher pipeline with an interactive visualization layer so you can both analyse and explore your experiment in one place.
 
 ---
 
@@ -2291,7 +2349,7 @@ Developed by **Aitor Moruno-Cuenca** with contributions from the Almirall R&D te
 
 App development supervised by Prof. Dr. Alexandre Perera-Lluna (UPC).
 
-*ProteinBatcher Analyst* v0.99.1 — MIT License.
+*ProteinBatcher App* v0.99.1 — MIT License.
 :::
 
 :::
