@@ -155,7 +155,12 @@ accordion(
             tags$div(class = "example-links",
                 icon("circle-info", style = "color:#6c757d;font-size:.8em;"), " Example: ",
                 downloadLink("example_counts", "HaCaT_pg_matrix.tsv"))
-        )
+        ),
+        tags$div(style = "font-size:.75em;color:#6c757d;margin-top:4px;line-height:1.35;",
+            icon("circle-info"),
+            " Example files: HaCaT keratinocyte DIA dataset — 24 samples,",
+            " 4 conditions (NoTreated, IL-13, IL-22, COMBO), 6 replicates each,",
+            " 2 batch days. See Getting Started \u2192 Overview for details.")
     ),
 
     accordion_panel(
@@ -175,8 +180,13 @@ accordion(
         title = "Parameters",
         icon  = icon("sliders-h"),
 
-        sliderInput("percent_missing", "Maximum missingness per protein (%)",
+        sliderInput("percent_missing", "Minimum detection rate per condition (%)",
                     min = 0, max = 100, value = 50, step = 5),
+        tags$div(style = "font-size:.75em;color:#6c757d;margin:-4px 0 10px;line-height:1.35;",
+            icon("circle-info"),
+            " A protein is kept if it is quantified in at least this fraction of",
+            " samples in at least one condition; proteins below this rate in every",
+            " condition are removed before imputation."),
         sliderInput("threshold", "Mean-imputation threshold per condition (%)",
                     min = 0, max = 100, value = 50, step = 5),
         textInput("experiment", "Experiment name",
@@ -185,10 +195,19 @@ accordion(
                     choices = c("per-condition", "global"), selected = "per-condition"),
         numericInput("alpha", "Adjusted p-value threshold (α)",
                      value = 0.05, min = 0, max = 1, step = 0.01),
-        numericInput("lfc", "Log\u2082 fold-change threshold",
+        numericInput("lfc", "Absolute log\u2082 fold-change threshold (|log\u2082FC|)",
                      value = 1, min = 0, step = 0.1),
         checkboxInput("paired",           "Paired design",                       value = FALSE),
+        tags$div(style = "font-size:.75em;color:#6c757d;margin:-4px 0 8px;line-height:1.35;",
+            icon("circle-info"),
+            " Adds the ", tags$code("replicate"), " column to the design matrix",
+            " (technical replicates). See Methods \u2192 Technical replicates."),
         checkboxInput("block_effect",     "Block effect (duplicateCorrelation)", value = FALSE),
+        tags$div(style = "font-size:.75em;color:#6c757d;margin:-4px 0 8px;line-height:1.35;",
+            icon("circle-info"),
+            " Models within-donor correlation via ",
+            tags$code("limma::duplicateCorrelation()"),
+            " using the selected block variable. See Methods \u2192 Within-patient correlations."),
         uiOutput("block_var_ui"),
         checkboxInput("test_interaction", "Test interaction contrasts",           value = TRUE)
     ),
@@ -455,6 +474,7 @@ observeEvent(input$run_analysis, {
             filt <- filter_se_missing(se_raw, percentage = input$percent_missing)
 
             incProgress(0.20, detail = "Imputing missing values\u2026")
+            set.seed(123)  # fixed seed: LDV imputation draws from rnorm
             se_imp <- impute_se(filt$se_filt,
                                 threshold  = input$threshold / 100,
                                 ldv_source = input$ldv_source)
@@ -610,7 +630,7 @@ output$di_pca_plot <- renderPlotly({
     shp_var <- if (!is.null(input$di_shape_by) && input$di_shape_by != "None" &&
                    input$di_shape_by %in% colnames(df)) input$di_shape_by else NULL
 
-    conds     <- as.character(unique(df[[col_var]]))
+    conds     <- sort(as.character(unique(df[[col_var]])))
     color_map <- setNames(condition_palette(length(conds)), conds)
 
     pc_x_i <- suppressWarnings(as.integer(sub("PC", "", pc_x)))
@@ -738,7 +758,7 @@ output$di_sample_box_plot <- renderPlotly({
     has_cond <- "condition" %in% colnames(cd)
     if (has_cond) {
         long_df$condition <- cd[as.character(long_df$sample_name), "condition"]
-        conds     <- unique(as.character(long_df$condition))
+        conds     <- sort(unique(as.character(long_df$condition)))
         color_map <- setNames(condition_palette(length(conds)), conds)
     }
 
@@ -800,6 +820,7 @@ output$di_sample_box_plot <- renderPlotly({
                           color  = stats_df$color,
                           line   = list(color = "#002855", width = 1.2)),
         text       = ~hover,
+        textposition = "none",
         hoverinfo  = "text",
         name       = "Mean",
         inherit    = FALSE,
@@ -863,7 +884,7 @@ output$di_ident_plot <- renderPlotly({
     if (has_cond) {
         df$condition <- cd[df$sample_name, "condition"]
         df          <- df[order(as.character(df$condition), df$sample_name), ]
-        conds       <- unique(as.character(df$condition))
+        conds       <- sort(unique(as.character(df$condition)))
         color_map   <- setNames(condition_palette(length(conds)), conds)
         df$color    <- color_map[as.character(df$condition)]
     } else {
@@ -887,16 +908,17 @@ output$di_ident_plot <- renderPlotly({
         marker     = list(color = df$color,
                           line  = list(color = "#002855", width = 0.4)),
         text       = ~hover,
+        textposition = "none",
         hoverinfo  = "text",
         showlegend = FALSE
     )
 
-    ## Reference line at the median count (helps spot outlier samples)
-    p <- p %>% add_segments(
-        x = -0.5, xend = nrow(df) - 0.5, y = median_n, yend = median_n,
-        line = list(color = "#002855", dash = "dot", width = 1.4),
-        showlegend = FALSE, hoverinfo = "text",
-        text = paste0("Median: ", median_n), inherit = FALSE)
+    ## Reference line at the median count, drawn as a layout shape so the
+    ## categorical x-axis does not gain phantom numeric ticks (-0.5 / 23.5)
+    med_shape <- list(type = "line", xref = "x", yref = "y",
+                      x0 = -0.5, x1 = nrow(df) - 0.5,
+                      y0 = median_n, y1 = median_n,
+                      line = list(color = "#002855", dash = "dot", width = 1.4))
 
     ## Legend dummies for the condition colors
     if (has_cond) {
@@ -923,6 +945,7 @@ output$di_ident_plot <- renderPlotly({
         legend = list(orientation = "h", y = -0.35, font = list(size = 10)),
         paper_bgcolor = "white", plot_bgcolor = "white",
         margin = list(t = 60, b = 110),
+        shapes  = list(med_shape),
         barmode = "stack"
     ) %>% config(displayModeBar = TRUE,
                  modeBarButtonsToRemove = c("lasso2d","select2d","autoScale2d"),
@@ -1029,7 +1052,7 @@ output$di_missing_plot <- renderPlotly({
     if (has_cond) {
         df$condition <- cd[df$sample_name, "condition"]
         df          <- df[order(as.character(df$condition), df$sample_name), ]
-        conds       <- unique(as.character(df$condition))
+        conds       <- sort(unique(as.character(df$condition)))
         color_map   <- setNames(condition_palette(length(conds)), conds)
         df$color    <- color_map[as.character(df$condition)]
     } else {
@@ -1053,14 +1076,16 @@ output$di_missing_plot <- renderPlotly({
         marker     = list(color = df$color,
                           line  = list(color = "#002855", width = 0.4)),
         text       = ~hover,
+        textposition = "none",
         hoverinfo  = "text",
         showlegend = FALSE)
 
-    p <- p %>% add_segments(
-        x = -0.5, xend = nrow(df) - 0.5, y = median_pct, yend = median_pct,
-        line = list(color = "#002855", dash = "dot", width = 1.4),
-        showlegend = FALSE, hoverinfo = "text",
-        text = paste0("Median: ", round(median_pct, 1), "%"), inherit = FALSE)
+    ## Median reference line as a layout shape: spans the categorical axis
+    ## without adding phantom numeric ticks (-0.5 / 23.5)
+    med_shape <- list(type = "line", xref = "x", yref = "y",
+                      x0 = -0.5, x1 = nrow(df) - 0.5,
+                      y0 = median_pct, y1 = median_pct,
+                      line = list(color = "#002855", dash = "dot", width = 1.4))
 
     p %>% layout(
         title = list(
@@ -1075,6 +1100,7 @@ output$di_missing_plot <- renderPlotly({
         yaxis = list(title = "% missing", ticksuffix = "%",
                      gridcolor = "#e9ecef", zerolinecolor = "#dee2e6"),
         paper_bgcolor = "white", plot_bgcolor = "white",
+        shapes = list(med_shape),
         margin = list(t = 60, b = 110)
     ) %>% config(displayModeBar = TRUE,
                  modeBarButtonsToRemove = c("lasso2d","select2d","autoScale2d"),
@@ -1226,7 +1252,7 @@ output$imp_protein_plot <- renderPlotly({
     col_var   <- if (!is.null(input$imp_dot_color) &&
                      input$imp_dot_color %in% colnames(plot_df))
         input$imp_dot_color else "condition"
-    cond_vals <- as.character(unique(plot_df[[col_var]]))
+    cond_vals <- sort(as.character(unique(plot_df[[col_var]])))
     color_map <- setNames(condition_palette(length(cond_vals)), cond_vals)
 
     hover_cols  <- intersect(c("batch", "donor_id", "replicate"), colnames(plot_df))
@@ -1829,6 +1855,7 @@ de_volcano_data <- reactive({
         padj_col <- sub("^log2FC_", "p.val_", lfc_col)
         if (!padj_col %in% colnames(rd)) return(NULL)
     }
+    pval_col <- sub("^log2FC_", "p.val_", lfc_col)
 
     gene_col <- Filter(function(x) x %in% colnames(rd), c("Genes","name","ID"))[1]
     prot_col <- Filter(function(x) x %in% colnames(rd), c("Protein.Names","Protein.Group","ID"))[1]
@@ -1839,6 +1866,7 @@ de_volcano_data <- reactive({
         prot_name  = if (!is.na(prot_col)) rd[[prot_col]] else rownames(rd),
         log2FC     = rd[[lfc_col]],
         p_adj      = rd[[padj_col]],
+        p_val      = if (pval_col %in% colnames(rd)) rd[[pval_col]] else NA_real_,
         imputed    = if ("imputed" %in% colnames(rd)) as.logical(rd$imputed) else FALSE,
         stringsAsFactors = FALSE
     )
@@ -2151,7 +2179,7 @@ output$de_dereg_panel_ui <- renderUI({
     )
 })
 
-# ── DEG table ──────────────────────────────────────────────────────────────────
+# ── DEP table ──────────────────────────────────────────────────────────────────
 output$de_deg_table <- DT::renderDT({
     req(de_volcano_data())
     df       <- de_volcano_data()
@@ -2168,16 +2196,43 @@ output$de_deg_table <- DT::renderDT({
     }
     sig_df  <- sig_df[order(sig_df$p_adj, na.last=TRUE), ]
     ct_lbl  <- input$de_contrast
+    plot_ct <- attr(df, "plot_ct"); if (is.null(plot_ct)) plot_ct <- ct_lbl
+
+    # ── Per-contrast imputation type + mean abundances (main effects only) ──
+    parts   <- strsplit(plot_ct, "_vs_")[[1]]
+    imp_map <- metadata(rv$se_imp)$imputation_map
+    cd_imp  <- as.data.frame(colData(rv$se_imp))
+    is_main <- length(parts) == 2 && !is.null(imp_map) &&
+               all(parts %in% as.character(cd_imp$condition))
+    if (is_main) {
+        c1 <- parts[1]; c2 <- parts[2]
+        imp_ty  <- .imp_classify(imp_map, cd_imp, c1, c2)
+        mat_imp <- assay(rv$se_imp)
+        m_idx   <- match(sig_df$protein_id, rownames(mat_imp))
+        mean_c1 <- round(rowMeans(mat_imp[, cd_imp$condition == c1, drop=FALSE],
+                                  na.rm=TRUE)[m_idx], 3)
+        mean_c2 <- round(rowMeans(mat_imp[, cd_imp$condition == c2, drop=FALSE],
+                                  na.rm=TRUE)[m_idx], 3)
+        imp_ty  <- unname(imp_ty[sig_df$protein_id])
+    }
+
     tbl <- data.frame(
         Gene      = sig_df$gene,
         ProteinID = sig_df$protein_id,
+        Contrast  = plot_ct,
         log2FC    = round(sig_df$log2FC, 4),
+        p.value   = format(sig_df$p_val, digits=3, scientific=TRUE),
         adj.p     = format(sig_df$p_adj, digits=3, scientific=TRUE),
-        "-log10p" = round(sig_df$neg_log10_p, 2),
+        "-log10(adj.p)" = round(sig_df$neg_log10_p, 2),
         Direction = ifelse(sig_df$log2FC > 0, "\u2191 Up", "\u2193 Down"),
-        Imputed   = sig_df$imputed,
         check.names=FALSE, stringsAsFactors=FALSE
     )
+    if (is_main) {
+        tbl[[paste0("Mean_", c1)]] <- mean_c1
+        tbl[[paste0("Mean_", c2)]] <- mean_c2
+    }
+    tbl$Imputed <- sig_df$imputed
+    tbl$Imputation.type <- if (is_main) imp_ty else NA_character_
     DT::datatable(tbl, rownames=FALSE,
         class="table table-sm table-hover", filter="top",
         extensions="Buttons",
@@ -2185,10 +2240,10 @@ output$de_deg_table <- DT::renderDT({
             dom="Bfrtip", pageLength=20, scrollX=TRUE,
             buttons=list(
                 list(extend="csv",   text="CSV",
-                     filename=paste0("DEGs_",ct_lbl,"_",Sys.Date()),
+                     filename=paste0("DEPs_",ct_lbl,"_",Sys.Date()),
                      exportOptions=list(modifier=list(page="all", search="none"))),
                 list(extend="excel", text="Excel",
-                     filename=paste0("DEGs_",ct_lbl,"_",Sys.Date()),
+                     filename=paste0("DEPs_",ct_lbl,"_",Sys.Date()),
                      exportOptions=list(modifier=list(page="all", search="none")))
             )
         )
@@ -2205,7 +2260,7 @@ output$de_deg_table <- DT::renderDT({
 }, server=FALSE)
 ## server=FALSE so DataTables Buttons can see every row when the user clicks
 ## CSV / Excel. With server=TRUE only the current page is in the DOM and the
-## download stops at row 20 (the pageLength). Trade-off: the entire DEG table
+## download stops at row 20 (the pageLength). Trade-off: the entire DEP table
 ## is shipped to the browser at render time. For typical proteomics outputs
 ## (a few thousand significant proteins per contrast) this is fine.
 ```
@@ -2224,7 +2279,7 @@ Standardized, design-aware downstream analysis of **label-free quantitative prot
 **Pipeline steps**
 
 1. **Import** — reads your protein matrix and annotation into a `SummarizedExperiment`.
-2. **Filter** — removes proteins below the missingness threshold in all conditions.
+2. **Filter** — keeps proteins quantified in at least the minimum detection rate (Parameters) in at least one condition; removes the rest.
 3. **Impute** — two-step, condition-aware strategy: *mean imputation* for partially missing proteins; *LDV (left-censored draw)* for proteins missing across an entire condition.
 4. **Differential testing** — `limma` with imputation-aware BH-FDR: LDV/LDV features are excluded from p-value adjustment.
 5. **Effect organisation** — splits results into `all_common_effect`, `common_effect` and `interaction_effect` per contrast.
@@ -2237,6 +2292,12 @@ Standardized, design-aware downstream analysis of **label-free quantitative prot
 2. Upload contrasts — use the example file as a template.
 3. Adjust parameters, then click **Run ProteinBatcher**.
 4. Explore results in the tabs above.
+
+---
+
+**Example dataset**
+
+The example files (`annotation_HaCaT.tsv`, `HaCaT_pg_matrix.tsv`) contain a label-free DIA proteomics experiment (DIA-NN, Orbitrap Astral) of **HaCaT keratinocytes** — a spontaneously immortalized aneuploid human keratinocyte cell line (Boukamp *et al.*, 1988, *J. Cell Biol.* 106(3):761–771) — stimulated with IL-13, IL-22, or the combination IL-13+IL-22+TNF-α (COMBO) versus unstimulated controls: 24 samples, 4 conditions × 6 replicates, 2 batch days, 9,733 protein groups.
 
 ---
 
@@ -2686,7 +2747,7 @@ tags$div(
 
     tags$div(style="font-size:.73em;font-weight:700;text-transform:uppercase;
                     letter-spacing:.08em;color:#00F0BE;margin-bottom:8px;",
-             icon("table"), " DEG Table Filter"),
+             icon("table"), " DEP Table Filter"),
     textInput("de_gene_filter", "Filter table by gene / protein ID",
               value="", placeholder="e.g. SERPINB3, CCL26\u2026"),
     tags$div(class="text-muted mt-1", style="font-size:.78em;line-height:1.4;",
@@ -2752,6 +2813,7 @@ DT::DTOutput("de_deg_table")
 
 <p style="font-size:.82em;color:#6c757d;margin-top:8px;padding:0 2px;">
 Sorted by adjusted p-value (ascending). The <b>Imputed</b> flag indicates proteins with at least one LDV/mean-imputed value.
+<b>NA in adj.p</b> = protein imputed as LDV in both conditions of the contrast; excluded from BH FDR correction because the p-value would reflect the imputation model rather than biology.
 For interaction-effect results, log2FC and adj.p refer to the interaction coefficient, not the main effect.
 </p>
 :::
@@ -2856,3 +2918,4 @@ The three output types reflect different contrasts:
 | **Interaction effect** | Difference in condition effect between factor levels ($\beta_{interaction}$) | Proteins regulated differently in different batches/sexes/timepoints |
 
 :::
+
